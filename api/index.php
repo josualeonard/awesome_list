@@ -339,6 +339,39 @@ $app->get(
   }
 );
 
+$app->get(
+  '/tasks',
+  function () use ($db, $app) {
+    $result = array('status' => 1, 'message' => 'Success');
+    if($app->request->get('key')){
+      $db_param = array("session"=>$app->request->get('key'));
+      $user = $db->select("user", array("id","username","deactivated"), $db_param);
+      if(count($user)>0){
+        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+          $db_param = array("user_id"=>$user[0]['id']);
+          $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","done"), $db_param);
+          $result['result'] = array(
+            'user_id' => $user[0]['id'],
+            'username' => $user[0]['username'],
+            'length' => count($tasks),
+            'tasks' => $tasks
+          );
+        } else {
+          $result['status'] = 0;
+          $result['message'] = 'User has been deactivated';
+        }
+      } else {
+        $result['status'] = 0;
+        $result['message'] = 'Session invalid';
+      }
+    } else {
+      $result['status'] = 0;
+      $result['message'] = 'You should be logged in to gain access';
+    }
+    echo json_encode($result);
+  }
+);
+
 // Create Task (with upload)
 $app->post(
   '/tasks',
