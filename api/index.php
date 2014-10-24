@@ -55,11 +55,11 @@ $app->get(
     </head>
     <body>
       <header>
-        <h1>Welcome to Slim!</h1>
+        <h1>Welcome to Awesome List API!</h1>
       </header>
-      <p>
-        <a href="http://localhost:3000/awesome">API Docs</a>
-      </p>
+      <h3>
+        <a href="https://awesome-apidocs.herokuapp.com/awesome">API Docs</a>
+      </h3>
     </body>
   </html>
 EOT;
@@ -110,7 +110,7 @@ $app->post(
       // if failed, return fail code
       else {
         $result['status'] = 0;
-        $result['message'] = 'Invalid key or session expired, please login to regain access';
+        $result['message'] = 'Invalid username or password, you can always reset your password';
       }
     }
     else {
