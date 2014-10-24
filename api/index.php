@@ -727,6 +727,43 @@ $app->get(
   }
 );
 
+// Stats
+$app->get(
+  '/friendship',
+  function() use ($db, $app) {
+    $result = array('status' => 1, 'message' => 'Success');
+    if($app->request->get('key')){
+      $db_param = array("session"=>$app->request->get('key'));
+      $user = $db->select("user", array("id","username","deactivated"), $db_param);
+      if(count($user)>0){
+        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+          $friend_of = $user[0]['username'];
+          $friend_with = $db->select("view_friendship_summary", array("my_id","username","friends"), array("username"=>$friend_of));
+          if(is_array($friend_with)) {
+            $result['friendship'] = array(
+              'username' => $friend_of,
+              'friends' => isset($friend_with[0]['friends']) ? $friend_with[0]['friends'] : 0
+            );
+          } else {
+            $result["status"] = 0;
+            $result["message"] = 'Failed to get friend list';
+          }
+        } else {
+          $result['status'] = 0;
+          $result['message'] = 'User has been deactivated';
+        }
+      } else {
+        $result['status'] = 0;
+        $result['message'] = 'Invalid user';
+      }
+    } else {
+      $result['status'] = 0;
+      $result['message'] = 'You should be logged in to gain access';
+    }
+    echo json_encode($result);
+  }
+);
+
 /**
  * Misc
  */
