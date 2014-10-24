@@ -10,13 +10,21 @@ $app = new \Slim\Slim();
 $app->contentType("application/json");
 
 // DB
+
+// Deploy
+$url=parse_url(getenv("CLEARDB_DATABASE_URL"));
+$server = $url["host"];
+$username = $url["user"];
+$password = $url["pass"];
+$db_name = substr($url["path"],1);
+
 $db = new medoo(array(
   // required
   'database_type' => 'mysql',
-  'database_name' => 'awesome_list', //'database_name' => 'test',
-  'server' => 'localhost',
-  'username' => 'root', //'username' => 'hatchspotcom',
-  'password' => '', //'password' => 'N9prE9SRLnN',
+  'database_name' => $db_name, //'database_name' => 'awesome_list',
+  'server' => $server, //localhost
+  'username' => $username, //'username' => 'root',
+  'password' => $password, //'password' => '',
 
   // optional
   'port' => 3306,
