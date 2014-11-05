@@ -13,18 +13,18 @@ $app->contentType("application/json");
 
 // Deploy
 $url=parse_url(getenv("CLEARDB_DATABASE_URL"));
-$server = $url["host"];
-$username = $url["user"];
-$password = $url["pass"];
-$db_name = substr($url["path"],1);
+$server = "localhost";//$url["host"];
+$username = "root";//$url["user"];
+$password = "";//$url["pass"];
+$db_name = "awesome_list";//substr($url["path"],1);
 
 $db = new medoo(array(
   // required
   'database_type' => 'mysql',
-  'database_name' => $db_name, //'database_name' => 'awesome_list',
-  'server' => $server, //localhost
-  'username' => $username, //'username' => 'root',
-  'password' => $password, //'password' => '',
+  'database_name' => $db_name,
+  'server' => $server,
+  'username' => $username,
+  'password' => $password,
 
   // optional
   'port' => 3306,
@@ -174,6 +174,7 @@ $app->post(
           'location' => stripslashes($app->request->post('location'))
         ));
         if($db_result>0){
+          $result["id"] = $db_result;
           $result["key"] = $session;
         }
         else {
@@ -264,8 +265,97 @@ $app->put(
   }
 );
 
-//TODO: Update profile photo
-//TODO: Update timeline photo
+$app->post(
+  '/profile_photo',
+  function() use ($db, $app){
+    $result = array('status' => 1, 'message' => 'Success');
+    //var_dump($_POST);
+    //var_dump($_FILES);
+
+    if($app->request->post('key')){
+      // get user based on key
+      $db_param = array("AND" => array("session" => $app->request->post('key'), "#session_expiry[>=]" => "NOW()"));
+      $auth = $db->select("user", array("id","username","session_expiry"), $db_param);
+
+      // check it's session expiry, if not expired return success and extend session expiry
+      if(count($auth)>0){
+        if(isset($_FILES['media']['tmp_name'][0]) && $_FILES['media']['tmp_name'][0]!=''){
+          try {
+            if(!is_dir("./uploads/{$auth[0]['username']}")) mkdir("./uploads/{$auth[0]['username']}");
+            $upload = move_uploaded_file($_FILES['media']['tmp_name'][0], "./uploads/{$auth[0]['username']}/profile_photo.jpg");
+            if($upload){
+              $db->update("user", array("photo" => "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$auth[0]['username']}/profile_photo.jpg"), array("id" => $auth[0]['id']));
+            } else {
+              $result['status'] = 0;
+              $result['message'] = "Could not move uploaded file";
+            }
+          } catch(Exception $e){
+            $result['status'] = 0;
+            $result['message'] = $e->getMessage();
+          }
+        } else {
+          $result['status'] = 0;
+          $result['message'] = "File not uploaded";
+        }
+      }
+      // if expired return fail
+      else {
+        $result['status'] = 0;
+        $result['message'] = 'Invalid key or session expired, please login to regain access';
+      }
+    }
+    else {
+      $result['status'] = 0;
+      $result['message'] = 'Authentication failed';
+    }
+    echo json_encode($result);
+  }
+);
+
+$app->post(
+  '/timeline_photo',
+  function() use ($db, $app){
+    $result = array('status' => 1, 'message' => 'Success');
+
+    if($app->request->post('key')){
+      // get user based on key
+      $db_param = array("AND" => array("session" => $app->request->post('key'), "#session_expiry[>=]" => "NOW()"));
+      $auth = $db->select("user", array("id","username","session_expiry"), $db_param);
+
+      // check it's session expiry, if not expired return success and extend session expiry
+      if(count($auth)>0){
+        if(isset($_FILES['media']['tmp_name'][0]) && $_FILES['media']['tmp_name'][0]!=''){
+          try {
+            if(!is_dir("./uploads/{$auth[0]['username']}")) mkdir("./uploads/{$auth[0]['username']}");
+            $upload = move_uploaded_file($_FILES['media']['tmp_name'][0], "./uploads/{$auth[0]['username']}/timeline_photo.jpg");
+            if($upload){
+              $db->update("user", array("photo" => "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$auth[0]['username']}/timeline_photo.jpg"), array("id" => $auth[0]['id']));
+            } else {
+              $result['status'] = 0;
+              $result['message'] = "Could not move uploaded file";
+            }
+          } catch(Exception $e){
+            $result['status'] = 0;
+            $result['message'] = $e->getMessage();
+          }
+        } else {
+          $result['status'] = 0;
+          $result['message'] = "File not uploaded";
+        }
+      }
+      // if expired return fail
+      else {
+        $result['status'] = 0;
+        $result['message'] = 'Invalid key or session expired, please login to regain access';
+      }
+    }
+    else {
+      $result['status'] = 0;
+      $result['message'] = 'Authentication failed';
+    }
+    echo json_encode($result);
+  }
+);
 
 // Deactivate
 $app->delete(
@@ -303,11 +393,11 @@ $app->get(
       $db_param = array("session"=>$app->request->get('key'));
       $user = $db->select("user", array("id","username","deactivated"), $db_param);
       if(count($user)>0){
-        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+        if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           //$db_param = array("AND" => array("user_id"=>$user[0]['id'], "public"=>1));
           if($id!="{id}"){
             $db_param = array("AND" => array("id"=>$id, "user_id"=>$user[0]['id']));
-            $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","done"), $db_param);
+            $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","photo","done"), $db_param);
             $result['result'] = array(
               'length' => count($tasks),
               'tasks' => (count($tasks)>0)?$tasks[0]:array()
@@ -315,7 +405,7 @@ $app->get(
           }
           else {
             $db_param = array("user_id"=>$user[0]['id']);
-            $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","done"), $db_param);
+            $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","photo","done"), $db_param);
             $result['result'] = array(
               'user_id' => $user[0]['id'],
               'username' => $user[0]['username'],
@@ -347,9 +437,9 @@ $app->get(
       $db_param = array("session"=>$app->request->get('key'));
       $user = $db->select("user", array("id","username","deactivated"), $db_param);
       if(count($user)>0){
-        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+        if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           $db_param = array("user_id"=>$user[0]['id']);
-          $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","done"), $db_param);
+          $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","photo","done"), $db_param);
           $result['result'] = array(
             'user_id' => $user[0]['id'],
             'username' => $user[0]['username'],
@@ -379,26 +469,52 @@ $app->post(
     $result = array('status' => 1, 'message' => 'Success');
     if($app->request->post('key')){
       $db_param = array("session"=>$app->request->post('key'));
-      $user = $db->select("user", array("id","deactivated"), $db_param);
+      $user = $db->select("user", array("id","username","deactivated"), $db_param);
       if(count($user)>0){
-        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+        if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           if($app->request->post('title') && $app->request->post('desc')){
-            $insert = array(
-              'user_id' => $user[0]['id'],
-              'title' => stripslashes($app->request->post('title')),
-              'desc' => stripslashes($app->request->post('desc')),
-              'public' => intval(($app->request->post('public'))?$app->request->post('public'):1),
-              'done' => intval(($app->request->post('done'))?$app->request->post('done'):0),
-              'due' => stripslashes($app->request->post('due')),
-              'location' => stripslashes($app->request->post('location'))
-            );
-            $db_result = $db->insert('task', $insert);
-            if($db_result>0){
-              $result['id'] = $db_result;
+            $photo = false;
+            $photo_uploaded = false;
+            if(isset($_FILES['media']['tmp_name'][0]) && $_FILES['media']['tmp_name'][0]!=''){
+              $photo = true;
+              try {
+                if(!is_dir("./uploads/{$user[0]['username']}")) mkdir("./uploads/{$user[0]['username']}");
+                $upload = move_uploaded_file($_FILES['media']['tmp_name'][0], "./uploads/{$user[0]['username']}/new_task_tmp.jpg");
+                if($upload){
+                  $photo_uploaded = true;
+                } else {
+                  $result['status'] = 0;
+                  $result['message'] = "Could not move uploaded file";
+                }
+              } catch(Exception $e){
+                $result['status'] = 0;
+                $result['message'] = $e->getMessage();
+              }
             }
-            else {
-              $result["status"] = 0;
-              $result["message"] = 'Failed to add new task';
+
+            if(!$photo || ($photo && $photo_uploaded)){
+              $insert = array(
+                'user_id' => $user[0]['id'],
+                'title' => stripslashes($app->request->post('title')),
+                'desc' => stripslashes($app->request->post('desc')),
+                'public' => intval(($app->request->post('public'))?$app->request->post('public'):1),
+                'done' => intval(($app->request->post('done'))?$app->request->post('done'):0),
+                'due' => stripslashes($app->request->post('due')),
+                'location' => stripslashes($app->request->post('location'))
+              );
+              $db_result = $db->insert('task', $insert);
+              if($db_result>0){
+                $result['id'] = $db_result;
+                if($photo) {
+                  $photo = "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$user[0]['username']}/task_{$result['id']}.jpg";
+                  rename("./uploads/{$user[0]['username']}/new_task_tmp.jpg", "./uploads/{$user[0]['username']}/task_{$result['id']}.jpg");
+                  $db->update("task", array("photo" => $photo), array("id" => $result['id']));
+                }
+              }
+              else {
+                $result["status"] = 0;
+                $result["message"] = 'Failed to add new task';
+              }
             }
           }
           else {
@@ -421,7 +537,7 @@ $app->post(
   }
 );
 
-// Edit Task (with upload)
+// Edit Task - Without Upload (PUT method does not support upload file)
 $app->put(
   '/tasks/:id',
   function ($id) use ($db, $app) {
@@ -431,7 +547,7 @@ $app->put(
         $db_param = array("session"=>$app->request->post('key'));
         $user = $db->select("user", array("id","deactivated"), $db_param);
         if(count($user)>0){
-          if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+          if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
             $task = $db->select("task", array("id","title","desc","public","done","due","location"), array("AND" => array("id"=>$id, "user_id"=>$user[0]['id'])));
             if(count($task)>0){
               $update = array();
@@ -442,7 +558,6 @@ $app->put(
                 $update['desc'] = stripslashes($app->request->post('desc'));
               }
               if($app->request->post('public')!==null && $task[0]['public']!=$app->request->post('public')){
-                echo "Here";
                 $update['public'] = intval($app->request->post('public'));
               }
               if($app->request->post('done')!==null && $task[0]['done']!=$app->request->post('done')){
@@ -488,6 +603,104 @@ $app->put(
       $result['status'] = 0;
       $result['message'] = 'You should be logged in to gain access';
     }
+    ob_start();
+    echo "\npost\n";
+    //var_dump($app->request->post('key'));
+    $result['message'] = ob_get_contents();
+    ob_end_clean();
+    echo json_encode($result);
+  }
+);
+
+// Edit Task With Media (with upload)
+$app->post(
+  '/tasks_with_media/:id',
+  function ($id) use ($db, $app) {
+    $result = array('status' => 1, 'message' => 'Success');
+    if($app->request->post('key')){
+      if($id!='' && $id!='{id}'){
+        $db_param = array("session"=>$app->request->post('key'));
+        $user = $db->select("user", array("id","username","deactivated"), $db_param);
+        if(count($user)>0){
+          if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
+            $task = $db->select("task", array("id","title","desc","public","done","due","location"), array("AND" => array("id"=>$id, "user_id"=>$user[0]['id'])));
+            if(count($task)>0){
+              $update = array();
+              $photo = false;
+              $photo_uploaded = false;
+              if(isset($_FILES['media']['tmp_name'][0]) && $_FILES['media']['tmp_name'][0]!=''){
+                $photo = true;
+                try {
+                  if(!is_dir("./uploads/{$user[0]['username']}")) mkdir("./uploads/{$user[0]['username']}");
+                  $upload = move_uploaded_file($_FILES['media']['tmp_name'][0], "./uploads/{$user[0]['username']}/task_{$id}.jpg");
+                  if($upload){
+                    $photo_uploaded = true;
+                  } else {
+                    $result['status'] = 0;
+                    $result['message'] = "Could not move uploaded file";
+                  }
+                } catch(Exception $e){
+                  $result['status'] = 0;
+                  $result['message'] = $e->getMessage();
+                }
+              }
+
+              if(!$photo || ($photo && $photo_uploaded)) {
+                if ($app->request->post('title') && $task[0]['title'] != $app->request->post('title')) {
+                  $update['title'] = stripslashes($app->request->post('title'));
+                }
+                if ($app->request->post('desc') && $task[0]['desc'] != $app->request->post('desc')) {
+                  $update['desc'] = stripslashes($app->request->post('desc'));
+                }
+                if ($app->request->post('public') !== null && $task[0]['public'] != $app->request->post('public')) {
+                  $update['public'] = intval($app->request->post('public'));
+                }
+                if ($app->request->post('done') !== null && $task[0]['done'] != $app->request->post('done')) {
+                  $update['done'] = intval($app->request->post('done'));
+                }
+                if ($app->request->post('due') && $task[0]['due'] != $app->request->post('due')) {
+                  $update['due'] = stripslashes($app->request->post('due'));
+                }
+                if ($app->request->post('location') && $task[0]['location'] != $app->request->post('location')) {
+                  $update['location'] = stripslashes($app->request->post('location'));
+                }
+                if($photo){
+                  $update['photo'] = "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$user[0]['username']}/task_{$id}.jpg";
+                }
+                if (count($update) > 0) {
+                  $db_result = $db->update('task', $update, array("id" => $id));
+                  if ($db_result > 0) {
+                  } else {
+                    $result["status"] = 0;
+                    $result["message"] = 'Failed to update task';
+                  }
+                } else {
+                  $result["status"] = 0;
+                  $result["message"] = 'Nothing to update';
+                }
+              }
+            }
+            else {
+              $result["status"] = 0;
+              $result["message"] = 'Task not found';
+            }
+          } else {
+            $result['status'] = 0;
+            $result['message'] = 'User has been deactivated';
+          }
+        } else {
+          $result['status'] = 0;
+          $result['message'] = 'Session invalid';
+        }
+      }
+      else {
+        $result['status'] = 0;
+        $result['message'] = 'No task specified';
+      }
+    } else {
+      $result['status'] = 0;
+      $result['message'] = 'You should be logged in to gain access';
+    }
     echo json_encode($result);
   }
 );
@@ -502,10 +715,11 @@ $app->delete(
         $db_param = array("session"=>$app->request->get('key'));
         $user = $db->select("user", array("id","deactivated"), $db_param);
         if(count($user)>0){
-          if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+          if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
             $task = $db->select("task", array("id","title","desc","public","done","due","location"), array("AND" => array("id"=>$id, "user_id"=>$user[0]['id'])));
             if(count($task)>0){
               $db_result = $db->delete('task', array("id"=>$id));
+              if(is_file("./"))
               if($db_result>0){}
               else {
                 $result["status"] = 0;
@@ -551,11 +765,11 @@ $app->post(
         $db_param = array("session"=>$app->request->post('key'));
         $user = $db->select("user", array("id","username","deactivated"), $db_param);
         if(count($user)>0){
-          if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+          if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
             if($user[0]['username']!=$with){
               $friend_with = $db->select("user", array("id","deactivated"), array("username"=>$with));
               if(count($friend_with)>0){
-                if($friend_with[0]['deactivated']=="0000-00-00 00:00:00"){
+                if(!isset($friend_with[0]['deactivated']) || $friend_with[0]['deactivated']=="0000-00-00 00:00:00"){
                   $new_friend = $db->select("friendship", "*", array(
                     "OR" => array(
                       "AND #first_cond" => array(
@@ -629,7 +843,7 @@ $app->delete(
         $db_param = array("session"=>$app->request->get('key'));
         $user = $db->select("user", array("id","username","deactivated"), $db_param);
         if(count($user)>0){
-          if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+          if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
             if($user[0]['username']!=$with){
               $friend_with = $db->select("user", array("id","deactivated"), array("username"=>$with));
               if(count($friend_with)>0){
@@ -696,7 +910,7 @@ $app->get(
       $db_param = array("session"=>$app->request->get('key'));
       $user = $db->select("user", array("id","username","deactivated"), $db_param);
       if(count($user)>0){
-        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+        if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           $friend_of = $user[0]['username'];
           if(!in_array($username, array('','{username}'))) {
             $friend_of = $username;
@@ -736,7 +950,7 @@ $app->get(
       $db_param = array("session"=>$app->request->get('key'));
       $user = $db->select("user", array("id","username","deactivated"), $db_param);
       if(count($user)>0){
-        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+        if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           $friend_of = $user[0]['username'];
           $friend_with = $db->select("view_friendship_summary", array("my_id","username","friends"), array("username"=>$friend_of));
           if(is_array($friend_with)) {
@@ -777,7 +991,7 @@ $app->get(
       $db_param = array("session"=>$app->request->get('key'));
       $user = $db->select("user", array("id","username","deactivated"), $db_param);
       if(count($user)>0){
-        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+        if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           $id = $user[0]['id'];
           $friend_ids = array($id);
           $friends = $db->select("friendship", array("id","my_id","friend_id","unfriend"), array("AND" => array("OR" => array("my_id"=>$id, "friend_id"=>$id), "unfriend"=>0)));
@@ -820,7 +1034,7 @@ $app->get(
       $db_param = array("session"=>$app->request->get('key'));
       $user = $db->select("user", array("id","username","deactivated"), $db_param);
       if(count($user)>0){
-        if($user[0]['deactivated']=="0000-00-00 00:00:00"){
+        if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           $id = $user[0]['id'];
           $stats = $db->select("view_task_summary", array("user_id","username","total_tasks","week_tasks","week_done","month_tasks","month_done"), array("user_id" => $id));
           if(is_array($stats)) {
