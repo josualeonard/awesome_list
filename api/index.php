@@ -13,10 +13,10 @@ $app->contentType("application/json");
 
 // Deploy
 $url=parse_url(getenv("CLEARDB_DATABASE_URL"));
-$server = "localhost";//$url["host"];
-$username = "root";//$url["user"];
-$password = "";//$url["pass"];
-$db_name = "awesome_list";//substr($url["path"],1);
+$server = $url["host"];
+$username = $url["user"];
+$password = $url["pass"];
+$db_name = substr($url["path"],1);
 
 $db = new medoo(array(
   // required
