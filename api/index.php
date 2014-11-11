@@ -84,6 +84,9 @@ $app->post(
         $date = new DateTime();
         $date->modify('+30 day');
         $db->update("user", array("session_expiry" => $date->format('Y-m-d H:i:s')), array("id" => $id));
+		$result["result"] = array(
+			"user_id" => $id
+		);
       }
       // if expired return fail
       else {
@@ -106,6 +109,7 @@ $app->post(
         $db->update("user", array("session" => $session, "session_expiry" => $date->format('Y-m-d H:i:s')), array("id" => $id));
         $result['status'] = 1;
         $result['key'] = $session;
+		$result['user_id'] = $id;
       }
       // if failed, return fail code
       else {
@@ -121,15 +125,27 @@ $app->post(
   }
 );
 
+/**
+ * Membership
+ */
+
 // Get users
 $app->get(
   '/users',
   function() use ($db, $app){
     $result = array('status' => 1, 'message' => 'Success');
     // get user based on key
-    $users = $db->select("user", "*", array());
+    $db_param = array("OR" => array("deactivated #first_cond" => "0000-00-00 00:00:00", "deactivated #second_cond" => null));
+    $users = $db->select("user", "*", $db_param);
     // check it's session expiry, if not expired return success and extend session expiry
     if(is_array($users)) {
+        if(count($users)>0){
+            foreach($users as $key=>$user){
+                if(!$users["deactivated"] || $users["deactivated"]=="0000-00-00 00:00:00"){
+                    $users[$key]["deactivated"] = "";
+                }
+            }
+        }
       $result['result'] = array(
         'users' => $users,
         'length' => count($users)
@@ -144,9 +160,71 @@ $app->get(
   }
 );
 
-/**
- * Membership
- */
+// Get user
+$app->get(
+  '/account',
+  function() use ($db, $app){
+    $result = array("status"=>1, "message"=>"Success");
+    if($app->request->get('key')){
+      $db_param = array("session" => $app->request->get('key'));
+      $user = $db->select("user", array("id","username","firstname","lastname","email","password","company","location","photo","timeline_photo","registered"), $db_param);
+      if(count($user)>0){
+        $query = "SELECT f.id, f.friend_id, u.username FROM user u, friendship f WHERE f.friend_id=u.id AND f.my_id={$user[0]['id']}";
+        $qres = $db->query($query);
+        $result1 = $qres->fetchAll();
+        $query = "SELECT f.id, f.my_id, u.username FROM user u, friendship f WHERE f.my_id=u.id AND f.friend_id={$user[0]['id']}";
+        $qres = $db->query($query);
+        $result2 = $qres->fetchAll();
+
+        $user_friends = array();
+        if(count($result1)>0){
+          foreach($result1 as $r){
+            array_push($user_friends, array(
+              'id' => $r['id'],
+              'friend_id' => $r['friend_id'],
+              'username' => $r['username']
+            ));
+          }
+        }
+        if(count($result2)>0){
+          foreach($result2 as $r){
+            array_push($user_friends, array(
+              'id' => $r['id'],
+              'friend_id' => $r['my_id'],
+              'username' => $r['username']
+            ));
+          }
+        }
+
+        $result["result"] = array(
+          "user" => array(
+            "id" => $user[0]['id'],
+            "username" => $user[0]['username'],
+            "firstname" => $user[0]['firstname'],
+            "lastname" => $user[0]['lastname'],
+            "email" => $user[0]['email'],
+            "password" => $user[0]['password'],
+            "company" => $user[0]['company'],
+            "location" => $user[0]['location'],
+            "photo" => $user[0]['photo'],
+            "timeline_photo" => $user[0]['timeline_photo'],
+            "registered" => $user[0]['registered']
+          ),
+          "friends" => $user_friends,
+          "length" => count($user_friends)
+        );
+      } else {
+        $result["status"] = 0;
+        $result["message"] = "Invalid key";
+      }
+    }
+    else {
+      $result["status"] = 0;
+      $result["message"] = "Invalid parameter";
+    }
+    echo json_encode($result);
+  }
+);
 
 // Register
 $app->post(
@@ -329,7 +407,7 @@ $app->post(
             if(!is_dir("./uploads/{$auth[0]['username']}")) mkdir("./uploads/{$auth[0]['username']}");
             $upload = move_uploaded_file($_FILES['media']['tmp_name'][0], "./uploads/{$auth[0]['username']}/timeline_photo.jpg");
             if($upload){
-              $db->update("user", array("photo" => "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$auth[0]['username']}/timeline_photo.jpg"), array("id" => $auth[0]['id']));
+              $db->update("user", array("timeline_photo" => "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$auth[0]['username']}/timeline_photo.jpg"), array("id" => $auth[0]['id']));
             } else {
               $result['status'] = 0;
               $result['message'] = "Could not move uploaded file";
@@ -395,17 +473,39 @@ $app->get(
       if(count($user)>0){
         if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           //$db_param = array("AND" => array("user_id"=>$user[0]['id'], "public"=>1));
-          if($id!="{id}"){
+          if(($id!="{id}" || $id!="") && $id>0){
             $db_param = array("AND" => array("id"=>$id, "user_id"=>$user[0]['id']));
-            $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","photo","done"), $db_param);
-            $result['result'] = array(
-              'length' => count($tasks),
-              'tasks' => (count($tasks)>0)?$tasks[0]:array()
-            );
+            $tasks = $db->select("view_user_tasks", "*", $db_param);
+            if(is_array($tasks) && count($tasks)>0){
+                if(!$tasks[0]["photo"]){
+                    $tasks[0]["photo"] = "";
+                }
+                if(!$tasks[0]["modified"]){
+                    $tasks[0]["modified"] = $tasks[0]["created"];
+                }
+                $result['result'] = array(
+                  'length' => 1,
+                  'tasks' => $tasks[0]
+                );
+            } else {
+                $result['result'] = array(
+                    'length' => 0, 'tasks' => array()
+                );
+            }
           }
           else {
             $db_param = array("user_id"=>$user[0]['id']);
-            $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","photo","done"), $db_param);
+            $tasks = $db->select("view_user_tasks", "*", $db_param);
+            if(count(tasks)>0 && is_array($tasks)){
+                foreach($tasks as $key=>$task){
+                    if(!$task["photo"]){
+                        $tasks[$key]["photo"] = "";
+                    }
+                    if(!$task["modified"]){
+                        $tasks[$key]["modified"] = $tasks[$key]["created"];
+                    }
+                }
+            } else { $tasks = array(); }
             $result['result'] = array(
               'user_id' => $user[0]['id'],
               'username' => $user[0]['username'],
@@ -439,7 +539,17 @@ $app->get(
       if(count($user)>0){
         if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           $db_param = array("user_id"=>$user[0]['id']);
-          $tasks = $db->select("view_user_tasks", array("id","user_id","title","desc","photo","done"), $db_param);
+          $tasks = $db->select("view_user_tasks", "*", $db_param);
+          if(count(tasks)>0 && is_array($tasks)){
+              foreach($tasks as $key=>$task){
+                  if(!$task["photo"]){
+                      $tasks[$key]["photo"] = "";
+                  }
+                  if(!$task["modified"]){
+                      $tasks[$key]["modified"] = $tasks[$key]["created"];
+                  }
+              }
+          } else { $tasks = array(); }
           $result['result'] = array(
             'user_id' => $user[0]['id'],
             'username' => $user[0]['username'],
@@ -510,6 +620,19 @@ $app->post(
                   rename("./uploads/{$user[0]['username']}/new_task_tmp.jpg", "./uploads/{$user[0]['username']}/task_{$result['id']}.jpg");
                   $db->update("task", array("photo" => $photo), array("id" => $result['id']));
                 }
+                $db_param = array('id' => $result['id']);
+                $tasks = $db->select("view_user_tasks", "*", $db_param);
+                if(count(tasks)>0 && is_array($tasks)){
+                    foreach($tasks as $key=>$task){
+                        if(!$task["photo"]){
+                            $tasks[$key]["photo"] = "";
+                        }
+                        if(!$task["modified"]){
+                            $tasks[$key]["modified"] = $tasks[$key]["created"];
+                        }
+                    }
+                } else { $tasks = array(); }
+                $result['result'] = $tasks[0];
               }
               else {
                 $result["status"] = 0;
@@ -545,7 +668,7 @@ $app->put(
     if($app->request->post('key')){
       if($id!='' && $id!='{id}'){
         $db_param = array("session"=>$app->request->post('key'));
-        $user = $db->select("user", array("id","deactivated"), $db_param);
+        $user = $db->select("user", array("id","id"), $db_param);
         if(count($user)>0){
           if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
             $task = $db->select("task", array("id","title","desc","public","done","due","location"), array("AND" => array("id"=>$id, "user_id"=>$user[0]['id'])));
@@ -570,8 +693,20 @@ $app->put(
                 $update['location'] = stripslashes($app->request->post('location'));
               }
               if(count($update)>0){
+                $update['modified'] = date("Y-m-d H:i:s");
                 $db_result = $db->update('task', $update, array("id"=>$id));
-                if($db_result>0){}
+                if($db_result>0){
+                    $db_param = array('id' => $id);
+                    $tasks = $db->select("view_user_tasks", "*", $db_param);
+                    if(is_array($tasks) && count(tasks)>0){
+                        foreach($tasks as $key=>$task){
+                            if(!$task["photo"]){
+                                $tasks[$key]["photo"] = "";
+                            }
+                        }
+                    } else { $tasks = array(); }
+                    $result['result'] = $tasks[0];
+                }
                 else {
                   $result["status"] = 0;
                   $result["message"] = 'Failed to update task';
@@ -603,11 +738,6 @@ $app->put(
       $result['status'] = 0;
       $result['message'] = 'You should be logged in to gain access';
     }
-    ob_start();
-    echo "\npost\n";
-    //var_dump($app->request->post('key'));
-    $result['message'] = ob_get_contents();
-    ob_end_clean();
     echo json_encode($result);
   }
 );
@@ -668,8 +798,19 @@ $app->post(
                   $update['photo'] = "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$user[0]['username']}/task_{$id}.jpg";
                 }
                 if (count($update) > 0) {
+                  $update['modified'] = date("Y-m-d H:i:s");
                   $db_result = $db->update('task', $update, array("id" => $id));
                   if ($db_result > 0) {
+                      $db_param = array('id' => $id);
+                      $tasks = $db->select("view_user_tasks", "*", $db_param);
+                      if(count(tasks)>0 && is_array($tasks)){
+                          foreach($tasks as $key=>$task){
+                              if(!$task["photo"]){
+                                  $tasks[$key]["photo"] = "";
+                              }
+                          }
+                      } else { $tasks = array(); }
+                      $result['result'] = $tasks[0];
                   } else {
                     $result["status"] = 0;
                     $result["message"] = 'Failed to update task';
@@ -755,6 +896,58 @@ $app->delete(
  * Friendship
  */
 
+// Get friends
+$app->get(
+  '/friendship',
+  function() use ($db, $app){
+    $result = array("status"=>1, "message"=>"Success");
+    if($app->request->get('key')){
+      $db_param = array("session" => $app->request->get('key'));
+      $user = $db->select("user", array("id","username","firstname","lastname","email","password","company","location","photo","timeline_photo","registered"), $db_param);
+      if(count($user)>0){
+        $query = "SELECT f.id, f.friend_id, u.username FROM user u, friendship f WHERE f.friend_id=u.id AND f.my_id={$user[0]['id']}";
+        $qres = $db->query($query);
+        $result1 = $qres->fetchAll();
+        $query = "SELECT f.id, f.my_id, u.username FROM user u, friendship f WHERE f.my_id=u.id AND f.friend_id={$user[0]['id']}";
+        $qres = $db->query($query);
+        $result2 = $qres->fetchAll();
+
+        $user_friends = array();
+        if(count($result1)>0){
+          foreach($result1 as $r){
+            array_push($user_friends, array(
+              'id' => $r['id'],
+              'friend_id' => $r['friend_id'],
+              'username' => $r['username']
+            ));
+          }
+        }
+        if(count($result2)>0){
+          foreach($result2 as $r){
+            array_push($user_friends, array(
+              'id' => $r['id'],
+              'friend_id' => $r['my_id'],
+              'username' => $r['username']
+            ));
+          }
+        }
+        $result["result"] = array(
+          "friends" => $user_friends,
+          "length" => count($user_friends)
+        );
+      } else {
+        $result["status"] = 0;
+        $result["message"] = "Invalid key";
+      }
+    }
+    else {
+      $result["status"] = 0;
+      $result["message"] = "Invalid parameter";
+    }
+    echo json_encode($result);
+  }
+);
+
 // Connect
 $app->post(
   '/friendship/:with',
@@ -767,7 +960,7 @@ $app->post(
         if(count($user)>0){
           if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
             if($user[0]['username']!=$with){
-              $friend_with = $db->select("user", array("id","deactivated"), array("username"=>$with));
+              $friend_with = $db->select("user", array("id","username","deactivated"), array("username"=>$with));
               if(count($friend_with)>0){
                 if(!isset($friend_with[0]['deactivated']) || $friend_with[0]['deactivated']=="0000-00-00 00:00:00"){
                   $new_friend = $db->select("friendship", "*", array(
@@ -787,7 +980,18 @@ $app->post(
                       "my_id" => $user[0]['id'],
                       "friend_id" => $friend_with[0]['id']
                     ));
-                    if($new_friend>0){}
+                    if($new_friend>0){
+	                  $result["result"] = array(
+	                  	"id" => $new_friend,
+	                    "friend_id" => intval($friend_with[0]['id']),
+                        "username" => $friend_with[0]['username'],
+	                    "friends" => 0
+	                  );
+					  $friend_with = $db->select("view_friendship_summary", array("my_id","username","friends"), array("username"=>$user[0]['username']));
+					  if(is_array($friend_with)) {
+					    $result["result"]["friends"] = intval(isset($friend_with[0]['friends']) ? $friend_with[0]['friends'] : 0);
+				      }
+                    }
                     else {
                       $result["status"] = 0;
                       $result["message"] = 'Failed to connect with '.strip_tags($with);
@@ -864,7 +1068,17 @@ $app->delete(
                   foreach($new_friend as $nf){
                     array_push($del_id, $nf['id']);
                   }
-                  $db->delete("friendship", array("id" => $del_id));
+                  $delete_friend = $db->delete("friendship", array("id" => $del_id));
+                  if($delete_friend){
+	                $result["result"] = array(
+	                  "unfriend_id" => intval($friend_with[0]['id']),
+	                  "friends" => 0
+	                );
+                    $friend_with = $db->select("view_friendship_summary", array("my_id","username","friends"), array("username"=>$user[0]['username']));
+					if(is_array($friend_with)) {
+					  $result["result"]["friends"] = intval(isset($friend_with[0]['friends']) ? $friend_with[0]['friends'] : 0);
+				    }
+                  }
                 }
                 else {
                   $result["status"] = 0;
@@ -917,10 +1131,10 @@ $app->get(
           }
           $friend_with = $db->select("view_friendship_summary", array("my_id","username","friends"), array("username"=>$friend_of));
           if(is_array($friend_with)) {
-            $result['friendship'] = array(
+            $result['result'] = array('friendship' => array(
               'username' => $friend_of,
               'friends' => isset($friend_with[0]['friends']) ? $friend_with[0]['friends'] : 0
-            );
+            ));
           } else {
             $result["status"] = 0;
             $result["message"] = 'Failed to get friend list';
@@ -993,22 +1207,36 @@ $app->get(
       if(count($user)>0){
         if(!isset($user[0]['deactivated']) || $user[0]['deactivated']=="0000-00-00 00:00:00"){
           $id = $user[0]['id'];
-          $friend_ids = array($id);
+          $friend_ids = array();
           $friends = $db->select("friendship", array("id","my_id","friend_id","unfriend"), array("AND" => array("OR" => array("my_id"=>$id, "friend_id"=>$id), "unfriend"=>0)));
-          foreach($friends as $f){
-            array_push($friend_ids, $f['id']);
+          $tasks = array();
+          if(is_array($friends) && $friends>0){
+              foreach($friends as $f){
+                  if($f['my_id']==$id){
+                      array_push($friend_ids, $f['friend_id']);
+                  } else {
+                      array_push($friend_ids, $f['my_id']);
+                  }
+              }
+              $friend_ids = array_unique($friend_ids);
+              $tasks = $db->select("view_user_tasks", "*", array("user_id" => $friend_ids, "LIMIT" => 10));
+              if(is_array($tasks) && count($tasks)>0){
+                  foreach($tasks as $key=>$task){
+                      if(!$task["photo"]){
+                          $tasks[$key]["photo"] = "";
+                      }
+                      if(!$task["modified"]){
+                          $tasks[$key]["modified"] = $tasks[$key]["created"];
+                      }
+                  }
+              } else {
+                  $tasks = array();
+              }
           }
-          $friend_ids = array_unique($friend_ids);
-          $tasks = $db->select("view_user_tasks", array("id","user_id","username","title","desc","photo","location","location_map","due","public","done","created"), array("user_id" => $friend_ids, "LIMIT" => 10));
-          if(is_array($tasks)) {
-            $result['result'] = array(
-              'tasks' => $tasks,
-              'length' => count($tasks)
-            );
-          } else {
-            $result["status"] = 0;
-            $result["message"] = 'Failed to get task list';
-          }
+          $result['result'] = array(
+            'tasks' => $tasks,
+            'length' => count($tasks)
+          );
         } else {
           $result['status'] = 0;
           $result['message'] = 'User has been deactivated';
@@ -1038,7 +1266,7 @@ $app->get(
           $id = $user[0]['id'];
           $stats = $db->select("view_task_summary", array("user_id","username","total_tasks","week_tasks","week_done","month_tasks","month_done"), array("user_id" => $id));
           if(is_array($stats)) {
-            $result['stats'] = $stats[0];
+            $result['result'] = array('stats' => $stats[0]);
           } else {
             $result["status"] = 0;
             $result["message"] = 'Failed to get task stats';
