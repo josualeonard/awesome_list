@@ -362,7 +362,7 @@ $app->post(
             if(!is_dir("./uploads/{$auth[0]['username']}")) mkdir("./uploads/{$auth[0]['username']}");
             $upload = move_uploaded_file($_FILES['media']['tmp_name'][0], "./uploads/{$auth[0]['username']}/profile_photo.jpg");
             if($upload){
-              $db->update("user", array("photo" => "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$auth[0]['username']}/profile_photo.jpg"), array("id" => $auth[0]['id']));
+              $db->update("user", array("photo" => "https://{$_SERVER["HTTP_HOST"]}/api/uploads/{$auth[0]['username']}/profile_photo.jpg"), array("id" => $auth[0]['id']));
             } else {
               $result['status'] = 0;
               $result['message'] = "Could not move uploaded file";
@@ -407,7 +407,7 @@ $app->post(
             if(!is_dir("./uploads/{$auth[0]['username']}")) mkdir("./uploads/{$auth[0]['username']}");
             $upload = move_uploaded_file($_FILES['media']['tmp_name'][0], "./uploads/{$auth[0]['username']}/timeline_photo.jpg");
             if($upload){
-              $db->update("user", array("timeline_photo" => "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$auth[0]['username']}/timeline_photo.jpg"), array("id" => $auth[0]['id']));
+              $db->update("user", array("timeline_photo" => "https://{$_SERVER["HTTP_HOST"]}/api/uploads/{$auth[0]['username']}/timeline_photo.jpg"), array("id" => $auth[0]['id']));
             } else {
               $result['status'] = 0;
               $result['message'] = "Could not move uploaded file";
@@ -616,7 +616,7 @@ $app->post(
               if($db_result>0){
                 $result['id'] = $db_result;
                 if($photo) {
-                  $photo = "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$user[0]['username']}/task_{$result['id']}.jpg";
+                  $photo = "https://{$_SERVER["HTTP_HOST"]}/api/uploads/{$user[0]['username']}/task_{$result['id']}.jpg";
                   rename("./uploads/{$user[0]['username']}/new_task_tmp.jpg", "./uploads/{$user[0]['username']}/task_{$result['id']}.jpg");
                   $db->update("task", array("photo" => $photo), array("id" => $result['id']));
                 }
@@ -795,7 +795,7 @@ $app->post(
                   $update['location'] = stripslashes($app->request->post('location'));
                 }
                 if($photo){
-                  $update['photo'] = "http://{$_SERVER["HTTP_HOST"]}/awesome_list/api/uploads/{$user[0]['username']}/task_{$id}.jpg";
+                  $update['photo'] = "https://{$_SERVER["HTTP_HOST"]}/api/uploads/{$user[0]['username']}/task_{$id}.jpg";
                 }
                 if (count($update) > 0) {
                   $update['modified'] = date("Y-m-d H:i:s");
